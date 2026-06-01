@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "TableHandles",
+  "version": "1.4.0",
+  "description": "Hover any HTML table, grab a row/column handle, copy as TSV or Markdown. Works with virtual-scroll tables.",
+  "permissions": ["contextMenus", "clipboardWrite", "activeTab", "storage"],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/formatter.js", "src/content.js"],
+      "css": ["src/content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "TableHandles (click to toggle)"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "commands": {
+    "copy-plain": {
+      "suggested_key": {
+        "default": "Alt+Shift+C",
+        "mac": "Alt+Shift+C"
+      },
+      "description": "Copy selection as Plain Text (TSV)"
+    },
+    "copy-markdown": {
+      "suggested_key": {
+        "default": "Alt+Shift+M",
+        "mac": "Alt+Shift+M"
+      },
+      "description": "Copy selection as Markdown"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+# つまずきと学び
+
+- Manifest V3 では background は service_worker 指定（scripts配列ではない）
+- content_scripts の js 配列は記載順に実行される（formatter.js を先に）
+- navigator.clipboard.writeText は content script のユーザージェスチャーコンテキストで呼ぶ必要がある
+- アイコンは最小有効PNGバイナリ（1x1ピクセル）で代用可能
+- colspan/rowspan の完全展開は複雑なため、値の複製で簡易対応とした
+- <all_urls> 常駐の content script は既存ページのクリック/テキスト選択/フォームを奪ってはならない。preventDefault は最小限に、インタラクティブ要素は除外する
+- 結合セル対応では物理セルindex ではなく展開後グリッド座標を一貫して使う必要がある（buildCellMap で物理セル→グリッド座標のマッピングを一元管理）
+- hover クラスなど一時的な装飾は、対象要素から離脱するイベントで確実に全除去する
+- Cmd/Ctrl+クリックのトグル選択は mousedown でドラッグ開始と競合する。修飾キー押下時は mousedown をスキップし click に委ねることで解決
+- 非連続選択のコピーは「選択セルが占める行/列indexの集合を求め、fullGrid から該当行列だけ抽出」が最もシンプル。矩形選択時は連続集合になり従来と同結果
+- chrome.storage.local の enabled フラグで content script の全イベントを早期 return するパターンは、常駐 content script の ON/OFF 制御として軽量で有効
+- バッジ表示は storage.onChanged で追従させると popup/background 間の同期が不要になる
+- 発見性: 隠れた当たり判定(セル端5px)より可視ガター(セレクタバー)の方がユーザーが操作を発見しやすい
+- ポップアップ廃止→アイコンクリックトグルは action.onClicked + default_popup 削除で実現。両立不可(popup があると onClicked が発火しない)
+- バーのオーバーレイは body 直下 position:absolute + getBoundingClientRect + scroll offset が最も安定。テーブル内に挿入するとレイアウト崩壊リスクあり
+- mouseout でバーコンテナへの relatedTarget チェックを入れないと、バーにホバーした瞬間にテーブル離脱と誤判定される
+- scroll/resize でバー位置がずれるため再描画が必要。頻度が高い場合は requestAnimationFrame でスロットルすべき
+- ウィンドウ scroll は document 座標配置なら自動追従するので不要だが、内部スクロールコンテナ(AWS コンソール等)は親要素の scroll を capture フェーズで拾い、対象が hoveredTable の祖先のときだけ再配置する必要がある(scroll はバブルしないため capture: true 必須)
+- ツールバーは最初のセル基準の固定オフセットではなく選択範囲全体のバウンディングボックスとビューポート境界を考慮して配置すると、行/列バーや画面端との衝突を避けられる。z-index は既に bars より高いため位置だけが問題だった
+- クリップボード API が拒否されるページ(iframe・user activation 喪失等)では execCommand fallback も静かに失敗する。「Click to copy」インタラクティブトーストにすれば、クリック=user gesture を再供給できる
+- 範囲ドラッグ時のオートスクロールはマウスを動かさなくても選択を伸ばす必要があるため、ループ内で最後の clientX/Y と elementsFromPoint を使ってセルを再取得する。コンテナ判定は overflow auto/scroll かつ scrollHeight > clientHeight
+- 仮想スクロール表は可視行しか DOM にないので、内側スクロールコンテナを段階的に scrollBy → rafTwice → 行スナップショットで集約する。aria-rowindex があれば最強の dedup キー、なければ「1 列目テキスト + 列数」で fallback
+- sticky な thead は column bar が裏に隠れる/タイトルと重なる原因になる。createBars の minTop を sticky 要素の現在の bottom 値に合わせて持ち上げると追従する
+- mousedown/click のセル取得は target.closest('td, th') が透明オーバーレイで失敗するケースがあり、elementsFromPoint で stack を辿るフォールバックを足すと awsui 系の sticky オーバーレイでも 1 行目が選べる

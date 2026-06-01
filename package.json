@@ -1,0 +1,10 @@
+{
+  "name": "tablehandles",
+  "version": "1.4.0",
+  "private": true,
+  "description": "Hover any HTML table, grab a row/column handle, copy as TSV or Markdown.",
+  "scripts": {
+    "test": "node --test test/formatter.test.js",
+    "zip": "rm -f dist/tablehandles-${npm_package_version}.zip && mkdir -p dist && cd \"$(git rev-parse --show-toplevel)\" && zip -r \"dist/tablehandles-${npm_package_version}.zip\" manifest.json icons src -x '*.DS_Store'"
+  }
+}
