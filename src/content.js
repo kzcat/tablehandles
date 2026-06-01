@@ -106,25 +106,6 @@
     return el.closest('td, th')?.closest('table') || el.closest('table');
   }
 
-  // If a thead (or its first row/cell) is position:sticky, return its
-  // current on-screen bottom in client coords. Otherwise -Infinity.
-  function getStickyHeaderBottom(table) {
-    const thead = table.tHead;
-    const candidates = [];
-    if (thead) candidates.push(thead);
-    if (thead && thead.rows[0]) candidates.push(thead.rows[0]);
-    if (thead && thead.rows[0] && thead.rows[0].cells[0]) candidates.push(thead.rows[0].cells[0]);
-    let max = -Infinity;
-    for (const el of candidates) {
-      const cs = getComputedStyle(el);
-      if (cs.position === 'sticky' || cs.position === 'fixed') {
-        const r = el.getBoundingClientRect();
-        if (r.bottom > max) max = r.bottom;
-      }
-    }
-    return max;
-  }
-
   // Find a td/th under a screen coordinate, even when an overlay sits on top.
   function cellFromEvent(e) {
     let cell = e.target.closest && e.target.closest('td, th');
@@ -349,31 +330,35 @@
     if (!Number.isFinite(minLeft)) { minLeft = tableRect.left; maxRight = tableRect.right; }
     if (!Number.isFinite(minTop)) { minTop = tableRect.top; maxBottom = tableRect.bottom; }
 
-    // If the table has a sticky thead/header row, push column bars below it
-    // so they don't overlap the header text after the user scrolls down.
-    const stickyBottom = getStickyHeaderBottom(table);
-    if (Number.isFinite(stickyBottom) && stickyBottom > minTop) {
-      minTop = stickyBottom;
-    }
+    // Some tables (e.g. Wikipedia wikitables) put a wide gutter on the left
+    // of the <table> bounding box (caption padding, sortable controls, etc.).
+    // For the row gutter / corner button we want to sit outside that whole
+    // chrome — anchor those to whichever is further out. Top/bottom stays
+    // at the first/last cell so column handles do not cover the caption.
+    const outerLeft = Math.min(tableRect.left, minLeft);
+    const outerRight = Math.max(tableRect.right, maxRight);
+    const outerTop = minTop;
+    const outerBottom = maxBottom;
 
     // Backing bars (continuous, no gaps) — purely visual, no click handlers
     const colBack = document.createElement('div');
     colBack.className = 'copytables-bar-back copytables-col-back';
-    colBack.style.left = (sx + minLeft) + 'px';
-    colBack.style.top = (sy + minTop - BAR_SIZE) + 'px';
-    colBack.style.width = (maxRight - minLeft) + 'px';
+    colBack.style.left = (sx + outerLeft) + 'px';
+    colBack.style.top = (sy + outerTop - BAR_SIZE) + 'px';
+    colBack.style.width = (outerRight - outerLeft) + 'px';
     colBack.style.height = BAR_SIZE + 'px';
     barContainer.appendChild(colBack);
 
     const rowBack = document.createElement('div');
     rowBack.className = 'copytables-bar-back copytables-row-back';
-    rowBack.style.left = (sx + minLeft - BAR_SIZE) + 'px';
-    rowBack.style.top = (sy + minTop) + 'px';
+    rowBack.style.left = (sx + outerLeft - BAR_SIZE) + 'px';
+    rowBack.style.top = (sy + outerTop) + 'px';
     rowBack.style.width = BAR_SIZE + 'px';
-    rowBack.style.height = (maxBottom - minTop) + 'px';
+    rowBack.style.height = (outerBottom - outerTop) + 'px';
     barContainer.appendChild(rowBack);
 
     // Column bars (along top edge) — transparent click targets, color when active
+    const colBars = [];
     for (let ci = 0; ci < dim.cols; ci++) {
       const cell = colCells[ci];
       if (!cell) continue;
@@ -386,8 +371,9 @@
       bar.dataset.col = ci;
       bar.title = `Select column ${ci + 1}`;
       bar.setAttribute('aria-label', `Select column ${ci + 1}`);
-      bar.style.left = (sx + cr.left + offsetInCell * colWidth) + 'px';
-      bar.style.top = (sy + minTop - BAR_SIZE) + 'px';
+      const left = sx + cr.left + offsetInCell * colWidth;
+      bar.style.left = left + 'px';
+      bar.style.top = (sy + outerTop - BAR_SIZE) + 'px';
       bar.style.width = colWidth + 'px';
       bar.style.height = BAR_SIZE + 'px';
       bar.addEventListener('mousedown', e => { e.stopPropagation(); e.preventDefault(); });
@@ -397,9 +383,19 @@
         selectCol(table, ci, true);
       });
       barContainer.appendChild(bar);
+      colBars.push({ bar, left, width: colWidth });
+    }
+    // Stretch each bar so its right edge meets the next bar's left edge
+    // (and the last one reaches the table's right edge). border-spacing or
+    // sub-pixel rounding otherwise leaves hairline gaps between active bars.
+    for (let i = 0; i < colBars.length; i++) {
+      const next = colBars[i + 1] ? colBars[i + 1].left : (sx + outerRight);
+      const w = next - colBars[i].left;
+      if (w > 0) colBars[i].bar.style.width = w + 'px';
     }
 
     // Row bars (along left edge) — transparent click targets, color when active
+    const rowBars = [];
     for (let ri = 0; ri < dim.rows; ri++) {
       const cell = rowCells[ri];
       if (!cell) continue;
@@ -412,8 +408,9 @@
       bar.dataset.row = ri;
       bar.title = `Select row ${ri + 1}`;
       bar.setAttribute('aria-label', `Select row ${ri + 1}`);
-      bar.style.left = (sx + minLeft - BAR_SIZE) + 'px';
-      bar.style.top = (sy + cr.top + offsetInCell * rowHeight) + 'px';
+      const top = sy + cr.top + offsetInCell * rowHeight;
+      bar.style.left = (sx + outerLeft - BAR_SIZE) + 'px';
+      bar.style.top = top + 'px';
       bar.style.width = BAR_SIZE + 'px';
       bar.style.height = rowHeight + 'px';
       bar.addEventListener('mousedown', e => { e.stopPropagation(); e.preventDefault(); });
@@ -423,6 +420,12 @@
         selectRow(table, ri, true);
       });
       barContainer.appendChild(bar);
+      rowBars.push({ bar, top, height: rowHeight });
+    }
+    for (let i = 0; i < rowBars.length; i++) {
+      const next = rowBars[i + 1] ? rowBars[i + 1].top : (sy + outerBottom);
+      const h = next - rowBars[i].top;
+      if (h > 0) rowBars[i].bar.style.height = h + 'px';
     }
 
     // Corner button (select all)
@@ -431,8 +434,8 @@
     corner.title = 'Select / deselect entire table';
     corner.setAttribute('aria-label', 'Select / deselect entire table');
     corner.textContent = '\u229E';
-    corner.style.left = (sx + minLeft - BAR_SIZE) + 'px';
-    corner.style.top = (sy + minTop - BAR_SIZE) + 'px';
+    corner.style.left = (sx + outerLeft - BAR_SIZE) + 'px';
+    corner.style.top = (sy + outerTop - BAR_SIZE) + 'px';
     corner.style.width = BAR_SIZE + 'px';
     corner.style.height = BAR_SIZE + 'px';
     corner.addEventListener('mousedown', e => { e.stopPropagation(); e.preventDefault(); });
@@ -453,8 +456,8 @@
       capture.title = 'Capture all rows (scroll the table to collect virtual rows)';
       capture.setAttribute('aria-label', 'Capture all rows');
       capture.textContent = '\u21A1'; // \u21A1
-      capture.style.left = (sx + minLeft - BAR_SIZE) + 'px';
-      capture.style.top = (sy + minTop - BAR_SIZE * 2 - 2) + 'px';
+      capture.style.left = (sx + outerLeft - BAR_SIZE) + 'px';
+      capture.style.top = (sy + outerTop - BAR_SIZE * 2 - 2) + 'px';
       capture.style.width = BAR_SIZE + 'px';
       capture.style.height = BAR_SIZE + 'px';
       capture.addEventListener('mousedown', e => { e.stopPropagation(); e.preventDefault(); });
