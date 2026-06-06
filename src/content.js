@@ -153,6 +153,39 @@
     return false;
   }
 
+  // Render a cell's text. When the cell contains a nested table, its cells
+  // would otherwise be concatenated with no separators (e.g. "AliceNYBobLA").
+  // Inline the nested grid instead: columns joined by " · ", rows by " / ",
+  // so the content stays readable inside the single TSV/Markdown output cell.
+  const NESTED_COL_SEP = ' · ';
+  const NESTED_ROW_SEP = ' / ';
+  function inlineNestedTable(table) {
+    const rows = [];
+    for (const tr of table.rows) {
+      const cells = [];
+      for (const cell of tr.cells) cells.push(extractCellText(cell));
+      const line = cells.filter(s => s !== '').join(NESTED_COL_SEP);
+      if (line !== '') rows.push(line);
+    }
+    return rows.join(NESTED_ROW_SEP);
+  }
+  function renderCellNode(node) {
+    let out = '';
+    for (const child of node.childNodes) {
+      if (child.nodeType === 3) {           // text node
+        out += child.nodeValue;
+      } else if (child.nodeType === 1) {    // element
+        if (child.tagName === 'TABLE') out += ' ' + inlineNestedTable(child) + ' ';
+        else out += renderCellNode(child);
+      }
+    }
+    return out;
+  }
+  function extractCellText(cell) {
+    if (!cell.querySelector('table')) return TableFormatter.normalize(cell.textContent);
+    return TableFormatter.normalize(renderCellNode(cell));
+  }
+
   function buildGrid(table) {
     const rows = table.rows;
     const grid = [];
@@ -166,7 +199,7 @@
         const cell = rows[r].cells[c];
         const rs = cell.rowSpan || 1;
         const cs = cell.colSpan || 1;
-        const text = TableFormatter.normalize(cell.textContent);
+        const text = extractCellText(cell);
         for (let dr = 0; dr < rs; dr++) {
           for (let dc = 0; dc < cs; dc++) {
             const rr = r + dr, cc = cIdx + dc;
@@ -671,7 +704,7 @@
   function snapshotRow(tr) {
     const out = [];
     for (const c of tr.cells) {
-      const text = TableFormatter.normalize(c.textContent);
+      const text = extractCellText(c);
       const span = c.colSpan || 1;
       for (let i = 0; i < span; i++) out.push(text);
     }
@@ -719,6 +752,9 @@
     const collect = () => {
       for (const tr of table.querySelectorAll('tr')) {
         if (!tr.cells || tr.cells.length === 0) continue;
+        // Skip rows that belong to a nested table — those are inlined into
+        // their parent cell by snapshotRow, not collected as separate rows.
+        if (tr.closest('table') !== table) continue;
         if (isHeaderRow(tr)) {
           if (!header) header = snapshotRow(tr);
           continue;
